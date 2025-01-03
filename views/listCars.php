@@ -283,25 +283,49 @@ $categories = $vehicle->getCategories();
                     </div>
 
                     <!-- Table -->
-                    <table class="w-full border-collapse">
-                        <thead>
-                            <tr>
-                                <th class="pb-3 px-3 text-sm text-left border-b border-grey">Name</th>
-                                <th class="pb-3 px-3 text-sm text-left border-b border-grey">Description</th>
-                                <th class="pb-3 px-5 text-sm text-left border-b border-grey">Action</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr>
-                                <td class="py-4 px-3">Luxury Cars</td>
-                                <td class="py-4 px-3">High-end vehicles with premium features</td>
-                                <td class="py-4 px-3 edit-button">
-                                    <a href="#" class="edit-btn"><i class='bx bx-edit-alt'></i></a>
-                                    <a href="#"><i class="fa-solid fa-trash"></i></a>
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
+                    <?php
+                    
+// After your existing code, add:
+
+$vehicles = $vehicle->fetchAll();
+?>
+
+<table class="w-full border-collapse">
+    <thead>
+        <tr>
+            <th class="pb-3 px-3 text-sm text-left border-b border-grey">Photo</th>
+            <th class="pb-3 px-3 text-sm text-left border-b border-grey">Marque</th>
+            <th class="pb-3 px-3 text-sm text-left border-b border-grey">Model</th>
+            <th class="pb-3 px-3 text-sm text-left border-b border-grey">Categorie</th>
+            <th class="pb-3 px-3 text-sm text-left border-b border-grey">Price</th>
+            <th class="pb-3 px-3 text-sm text-left border-b border-grey">Disponibilité</th>
+            <th class="pb-3 px-3 text-sm text-left border-b border-grey">Description</th>
+            <th class="pb-3 px-5 text-sm text-left border-b border-grey">Action</th>
+        </tr>
+    </thead>
+    <tbody>
+        <?php foreach ($vehicles as $vehicle): ?>
+            <tr>
+               
+                <td class="py-4 px-3">
+                    <div class="w-16 h-16 overflow-hidden">
+                    <img src="../<?= $vehicle['image_url'] ?>" alt="Car" class="w-full h-full object-cover">
+                    </div>
+                </td>
+                <td class="py-4 px-3"><?= htmlspecialchars($vehicle['marque']) ?></td>
+                <td class="py-4 px-3"><?= htmlspecialchars($vehicle['modele']) ?></td>
+                <td class="py-4 px-3"><?= htmlspecialchars($vehicle['nom_categorie']) ?></td>
+                <td class="py-4 px-3">$<?= number_format($vehicle['prix_journalier'], 2) ?></td>
+                <td class="py-4 px-3"><?= htmlspecialchars($vehicle['disponibilite']) ?></td>
+                <td class="py-4 px-3"><?= htmlspecialchars($vehicle['description']) ?></td>
+                <td class="py-4 px-3 edit-button">
+                    <a href="edit.php?id=<?= $vehicle['id'] ?>" class="edit-btn"><i class='bx bx-edit-alt'></i></a>
+                    <a href="delete.php?id=<?= $vehicle['id'] ?>"><i class="fa-solid fa-trash"></i></a>
+                </td>
+            </tr>
+        <?php endforeach; ?>
+    </tbody>
+</table>
                 </div>
             </div>
         </main>
