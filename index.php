@@ -1,3 +1,15 @@
+<?php
+require_once __DIR__ . '/config/databasecnx.php';
+require_once __DIR__ . '/Classes/Voiture.php';
+
+$db = (new ConnectData())->getConnection();
+$vehicle = new Vehicle($db);
+$vehicles = $vehicle->fetchAll();
+?>
+
+
+
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -115,22 +127,24 @@
     </nav>
 
     <!-- Cars Page -->
-    <div id="carsPage" class="page active max-w-7xl mx-auto p-6" style="transform: translateY(100px);">
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            <!-- Sample Car Card -->
+
+<div id="carsPage" class="page active max-w-7xl mx-auto p-6" style="transform: translateY(100px);">
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+        <?php foreach ($vehicles as $car): ?>
             <div class="card rounded-2xl shadow-lg overflow-hidden">
                 <div class="relative">
-                    <img src="/api/placeholder/400/320" alt="Car" class="w-full h-56 object-cover">
-                    <span class="absolute top-4 right-4 bg-gradient-to-r from-green-400 to-green-600 text-white px-4 py-1.5 rounded-full font-semibold shadow-lg">
-                        Available
+                    <img src="<?= htmlspecialchars($car['image_url']) ?>" alt="<?= htmlspecialchars($car['marque'] . ' ' . $car['modele']) ?>" class="w-full h-56 object-cover">
+                    <span class="absolute top-4 right-4 bg-gradient-to-r <?= $car['disponibilite'] == 1 ? 'from-green-400 to-green-600' : 'from-red-400 to-red-600' ?> text-white px-4 py-1.5 rounded-full font-semibold shadow-lg">
+                        <?= $car['disponibilite'] == 1 ? 'Available' : 'Not Available' ?>
                     </span>
                 </div>
                 <div class="p-6 space-y-4">
-                    <h3 class="font-bold text-2xl text-gray-800">Sample Car Model</h3>
+                    <h3 class="font-bold text-2xl text-gray-800"><?= htmlspecialchars($car['marque'] . ' ' . $car['modele']) ?></h3>
                     <div class="flex items-center gap-6 text-gray-600">
-                        <span class="flex items-center"><i class="fa-solid fa-car-side mr-2"></i>ABC123</span>
-                        <span class="flex items-center"><i class="fa-solid fa-gauge mr-2"></i>2024</span>
+                        <span class="flex items-center"><i class="fa-solid fa-car-side mr-2"></i><?= htmlspecialchars($car['nom_categorie']) ?></span>
+                        <span class="flex items-center"><i class="fa-solid fa-tag mr-2"></i>$<?= number_format($car['prix_journalier'], 2) ?>/day</span>
                     </div>
+                    <p class="text-gray-600"><?= htmlspecialchars($car['description']) ?></p>
                     <form>
                         <div class="grid grid-cols-2 gap-4">
                             <div class="relative mb-3">
@@ -142,14 +156,15 @@
                                 <input type="date" name="dataefin" class="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-300 focus:outline-none">
                             </div>
                         </div>
-                        <button type="submit" class="reserve-btn w-full bg-gradient-to-r from-blue-600 to-blue-800 text-white py-3 rounded-lg hover:from-blue-700 hover:to-blue-900 transition-all duration-300 font-semibold shadow-md">
-                            Reserve Now
+                        <button type="submit" class="reserve-btn w-full bg-gradient-to-r from-blue-600 to-blue-800 text-white py-3 rounded-lg hover:from-blue-700 hover:to-blue-900 transition-all duration-300 font-semibold shadow-md" <?= $car['disponibilite'] == 0 ? 'disabled' : '' ?>>
+                            <?= $car['disponibilite'] == 1 ? 'Reserve Now' : 'Not Available' ?>
                         </button>
                     </form>
                 </div>
             </div>
-        </div>
+        <?php endforeach; ?>
     </div>
+</div>
 
     <!-- Reservations Page -->
     <div id="reservationsPage" class="page max-w-7xl mx-auto p-6">
