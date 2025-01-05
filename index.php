@@ -1,259 +1,201 @@
 <?php
-require_once __DIR__ . '/config/databasecnx.php';
-require_once __DIR__ . '/Classes/Voiture.php';
+// Enable error reporting for debugging
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
 
-$db = (new ConnectData())->getConnection();
-$vehicle = new Vehicle($db);
-$vehicles = $vehicle->fetchAll();
+// Start session if not already started
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
+require_once 'config/databasecnx.php';
+require_once 'auth.php';
+
+// Check if user is authenticated
+checkAuth(2);
+
+// Process reservation submission
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_reservation'])) {
+    $vehicule_id = $_POST['vehicule_id'];
+    $date_debut = $_POST['date_debut'];
+    $date_fin = $_POST['date_fin'];
+    $lieu_prise_en_charge = $_POST['lieu_prise_en_charge'];
+    $utilisateur_id = $_SESSION['user_id']; // Get user ID from session
+
+    // Check if the dates are valid
+    if (strtotime($date_fin) <= strtotime($date_debut)) {
+        $error = "End date must be after start date";
+    } else {
+        // Check if vehicle is available for these dates
+        $checkAvailability = $db->prepare("
+            SELECT COUNT(*) as count 
+            FROM reservation 
+            WHERE vehicule_id = ? 
+            AND ((date_debut BETWEEN ? AND ?) 
+            OR (date_fin BETWEEN ? AND ?))
+            AND statut != 'cancelled'
+        ");
+        
+        $checkAvailability->bind_param("issss", 
+            $vehicule_id, 
+            $date_debut, 
+            $date_fin,
+            $date_debut,
+            $date_fin
+        );
+        
+        $checkAvailability->execute();
+        $result = $checkAvailability->get_result();
+        $count = $result->fetch_assoc()['count'];
+
+        if ($count > 0) {
+            $error = "Vehicle is not available for selected dates";
+        } else {
+            // Insert the reservation
+            $insertReservation = $db->prepare("
+                INSERT INTO reservation 
+                (utilisateur_id, vehicule_id, date_debut, date_fin, lieu_prise_en_charge, statut) 
+                VALUES (?, ?, ?, ?, ?, 'pending')
+            ");
+            
+            $insertReservation->bind_param("iisss", 
+                $utilisateur_id,
+                $vehicule_id,
+                $date_debut,
+                $date_fin,
+                $lieu_prise_en_charge
+            );
+
+            if ($insertReservation->execute()) {
+                $success = "Reservation submitted successfully!";
+            } else {
+                $error = "Error creating reservation: " . $db->error;
+            }
+        }
+    }
+}
+
+// Fetch vehicles from the database with all necessary details
+$vehiclesQuery = "
+    SELECT id, marque, modele, description, prix_journalier, image_url,
+    NOT EXISTS (
+        SELECT 1 FROM reservation 
+        WHERE vehicule.id = reservation.vehicule_id 
+        AND statut != 'cancelled'
+        AND CURDATE() BETWEEN date_debut AND date_fin
+    ) as disponibilite
+    FROM vehicule
+";
+$result = $db->query($vehiclesQuery);
+$vehicles = $result->fetch_all(MYSQLI_ASSOC);
 ?>
-
-
-
 
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.1/css/all.min.css">
+    <title>Vehicle Reservations</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap');
-        
-        body {
-            font-family: 'Poppins', sans-serif;
-            background-color: #f8fafc;
-        }
-        
-        .nav-link {
-            position: relative;
-        }
-        
-        .nav-link::after {
-            content: '';
-            position: absolute;
-            width: 0;
-            height: 2px;
-            bottom: -5px;
-            left: 0;
-            background-color: #1d4ed8;
-            transition: width 0.3s ease;
-        }
-        
-        .nav-link:hover::after,
-        .nav-link.active::after {
-            width: 100%;
-        }
-        
-        .card {
-            transition: all 0.3s ease;
-            background: linear-gradient(145deg, #ffffff, #f3f4f6);
-            border: 1px solid rgba(255, 255, 255, 0.18);
-        }
-        
-        .card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1);
-        }
-
-        .logo-text {
-            background: linear-gradient(135deg, #000000 0%, #1e3a8a 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-
-        .reserved-badge {
-            animation: pulse 2s infinite;
-            box-shadow: 0 0 15px rgba(251, 146, 60, 0.5);
-        }
-
-        .page {
-            display: none;
-            animation: fadeIn 0.5s ease;
-        }
-
-        .page.active {
-            display: block;
-        }
-
-        @keyframes pulse {
-            0% { opacity: 1; transform: scale(1); }
-            50% { opacity: 0.8; transform: scale(1.05); }
-            100% { opacity: 1; transform: scale(1); }
-        }
-
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(20px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-    </style>
 </head>
-<body style="scroll-behavior: smooth;">
-    <!-- Navigation -->
-    <nav class="bg-white shadow-lg fixed z-50 w-full">
-        <div class="max-w-7xl mx-auto px-8 py-6">
-            <div class="flex justify-between items-center">
-                <!-- Logo -->
-                <div class="flex items-center space-x-3">
-                    <i class="fa-solid fa-car-side text-4xl bg-gradient-to-r from-black to-blue-900 text-transparent bg-clip-text"></i>
-                    <div>
-                        <span class="text-3xl font-bold logo-text tracking-wider">Loca</span>
-                        <span class="text-3xl font-black logo-text">Auto</span>
-                    </div>
-                </div>
-                
-                <!-- Navigation -->
-                <div class="flex items-center space-x-12">
-                    <div class="flex space-x-8">
-                        <button id="showCars" class="nav-link active text-lg font-semibold hover:text-blue-800 transition-colors flex items-center">
-                            <i class="fa-solid fa-car-rear mr-2"></i>
-                            Available Cars
-                        </button>
-                        <button id="showReservations" class="nav-link text-lg font-semibold hover:text-blue-800 transition-colors flex items-center">
-                            <i class="fa-solid fa-clock-rotate-left mr-2"></i>
-                            My Reservations
-                        </button>
-                    </div>
+<body class="bg-gray-100">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <?php if (isset($error)): ?>
+            <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+                <?php echo htmlspecialchars($error); ?>
+            </div>
+        <?php endif; ?>
+
+        <?php if (isset($success)): ?>
+            <div class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-4">
+                <?php echo htmlspecialchars($success); ?>
+            </div>
+        <?php endif; ?>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <?php foreach($vehicles as $vehicle): ?>
+                <div class="bg-white rounded-lg overflow-hidden shadow-md">
+                    <img src="<?php echo htmlspecialchars($vehicle['image_url'] ?? '/placeholder-car.jpg'); ?>" 
+                         alt="<?php echo htmlspecialchars($vehicle['marque'] . ' ' . $vehicle['modele']); ?>" 
+                         class="w-full h-48 object-cover">
                     
-                    <div class="flex items-center space-x-6">
-                        <a href="./controllers/logout.php"><button class="bg-black hover:bg-gray-800 text-white px-6 py-2.5 rounded-full transition-colors duration-300 flex items-center space-x-2">
-                            <i class="fa-solid fa-right-from-bracket"></i>
-                            <span>Logout</span>
-                        </button></a>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </nav>
-
-    <!-- Cars Page -->
-
-<div id="carsPage" class="page active max-w-7xl mx-auto p-6" style="transform: translateY(100px);">
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-        <?php foreach ($vehicles as $car): ?>
-            <div class="card rounded-2xl shadow-lg overflow-hidden">
-                <div class="relative">
-                    <img src="<?= htmlspecialchars($car['image_url']) ?>" alt="<?= htmlspecialchars($car['marque'] . ' ' . $car['modele']) ?>" class="w-full h-56 object-cover">
-                    <span class="absolute top-4 right-4 bg-gradient-to-r <?= $car['disponibilite'] == 1 ? 'from-green-400 to-green-600' : 'from-red-400 to-red-600' ?> text-white px-4 py-1.5 rounded-full font-semibold shadow-lg">
-                        <?= $car['disponibilite'] == 1 ? 'Available' : 'Not Available' ?>
-                    </span>
-                </div>
-                <div class="p-6 space-y-4">
-                    <h3 class="font-bold text-2xl text-gray-800"><?= htmlspecialchars($car['marque'] . ' ' . $car['modele']) ?></h3>
-                    <div class="flex items-center gap-6 text-gray-600">
-                        <span class="flex items-center"><i class="fa-solid fa-car-side mr-2"></i><?= htmlspecialchars($car['nom_categorie']) ?></span>
-                        <span class="flex items-center"><i class="fa-solid fa-tag mr-2"></i>$<?= number_format($car['prix_journalier'], 2) ?>/day</span>
-                    </div>
-                    <p class="text-gray-600"><?= htmlspecialchars($car['description']) ?></p>
-                    <form>
-                        <div class="grid grid-cols-2 gap-4">
-                            <div class="relative mb-3">
-                                <i class="fa-regular fa-calendar absolute left-3 top-3 text-blue-600"></i>
-                                <input type="date" name="datestart" class="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-300 focus:outline-none">
-                            </div>
-                            <div class="relative mb-3">
-                                <i class="fa-regular fa-calendar-check absolute left-3 top-3 text-blue-600"></i>
-                                <input type="date" name="dataefin" class="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-300 focus:outline-none">
-                            </div>
+                    <div class="p-6">
+                        <h3 class="text-xl font-semibold mb-2">
+                            <?php echo htmlspecialchars($vehicle['marque'] . ' ' . $vehicle['modele']); ?>
+                        </h3>
+                        
+                        <p class="text-gray-600 mb-4">
+                            <?php echo htmlspecialchars($vehicle['description']); ?>
+                        </p>
+                        
+                        <div class="flex justify-between items-center mb-4">
+                            <span class="text-blue-600 font-semibold">
+                                $<?php echo htmlspecialchars($vehicle['prix_journalier']); ?>/day
+                            </span>
+                            <span class="<?php echo $vehicle['disponibilite'] ? 'text-green-600' : 'text-red-600'; ?> font-semibold">
+                                <?php echo $vehicle['disponibilite'] ? 'Available' : 'Not Available'; ?>
+                            </span>
                         </div>
-                        <button type="submit" class="reserve-btn w-full bg-gradient-to-r from-blue-600 to-blue-800 text-white py-3 rounded-lg hover:from-blue-700 hover:to-blue-900 transition-all duration-300 font-semibold shadow-md" <?= $car['disponibilite'] == 0 ? 'disabled' : '' ?>>
-                            <?= $car['disponibilite'] == 1 ? 'Reserve Now' : 'Not Available' ?>
-                        </button>
-                    </form>
-                </div>
-            </div>
-        <?php endforeach; ?>
-    </div>
-</div>
 
-    <!-- Reservations Page -->
-    <div id="reservationsPage" class="page max-w-7xl mx-auto p-6">
-        <h2 class="text-3xl font-bold mb-8 text-gray-800">My Reservations</h2>
-        <div class="space-y-6 mb-5" style="transform:translateY(50px);">
-            <!-- Sample Reservation -->
-            <div class="bg-white rounded-2xl shadow-lg p-6 hover:shadow-xl transition-shadow duration-300">
-                <div class="flex justify-between items-center">
-                    <div class="flex items-center space-x-6">
-                        <img src="/api/placeholder/150/150" alt="Car" class="rounded-xl shadow-md">
-                        <div class="space-y-2">
-                            <h3 class="font-bold text-xl text-gray-800">Sample Car Model</h3>
-                            <p class="text-gray-600 flex items-center"><i class="fa-solid fa-car-side mr-2"></i>ABC123</p>
-                            <div class="text-gray-500 flex items-center">
-                                <i class="fa-regular fa-calendar mr-2"></i>
-                                2024-01-01 - 2024-01-05
-                            </div>
-                            <div class="text-gray-500 flex items-center"><i class="fa-regular fa-calendar-days mr-2"></i>5 Days</div>
-                        </div>
-                    </div>
-                    <div class="flex flex-col items-end space-y-4">
-                        <span class="reserved-badge bg-gradient-to-r from-yellow-400 to-yellow-500 text-white px-4 py-1.5 rounded-full font-semibold shadow-md">
-                            Pending <i class="fa-solid fa-spinner"></i>
-                        </span>
-                        <button class="text-red-500 hover:text-red-600 font-medium transition-colors flex items-center">
-                            <i class="fa-solid fa-times mr-2"></i>
-                            Cancel Reservation
-                        </button>
+                        <?php if($vehicle['disponibilite']): ?>
+                            <form action="" method="POST" class="space-y-4">
+                                <input type="hidden" name="vehicule_id" value="<?php echo htmlspecialchars($vehicle['id']); ?>">
+                                
+                                <div class="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700">Start Date</label>
+                                        <input type="date" name="date_debut" required 
+                                               min="<?php echo date('Y-m-d'); ?>"
+                                               class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700">End Date</label>
+                                        <input type="date" name="date_fin" required 
+                                               min="<?php echo date('Y-m-d', strtotime('+1 day')); ?>"
+                                               class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700">Pickup Location</label>
+                                    <select name="lieu_prise_en_charge" required 
+                                            class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
+                                        <option value="">Select location</option>
+                                        <option value="Casablanca">Casablanca</option>
+                                        <option value="Rabat">Rabat</option>
+                                        <option value="Marrakech">Marrakech</option>
+                                    </select>
+                                </div>
+
+                                <button type="submit" name="submit_reservation" value="1"
+                                        class="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors">
+                                    Reserve Now
+                                </button>
+                            </form>
+                        <?php else: ?>
+                            <button disabled class="w-full bg-gray-400 text-white py-2 px-4 rounded-md cursor-not-allowed">
+                                Not Available
+                            </button>
+                        <?php endif; ?>
                     </div>
                 </div>
-            </div>
+            <?php endforeach; ?>
         </div>
     </div>
 
     <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            const showCars = document.getElementById('showCars');
-            const showReservations = document.getElementById('showReservations');
-            const carsPage = document.getElementById('carsPage');
-            const reservationsPage = document.getElementById('reservationsPage');
-
-            function switchPage(show, hide, activeBtn, inactiveBtn) {
-                hide.classList.remove('active');
-                show.classList.add('active');
-                inactiveBtn.classList.remove('active');
-                activeBtn.classList.add('active');
-            }
-
-            showCars.addEventListener('click', () => {
-                switchPage(carsPage, reservationsPage, showCars, showReservations);
-            });
-
-            showReservations.addEventListener('click', () => {
-                switchPage(reservationsPage, carsPage, showReservations, showCars);
-            });
-
-            document.querySelectorAll('.reserve-btn').forEach(btn => {
-                btn.addEventListener('click', function(e) {
+        // Add client-side date validation
+        document.querySelectorAll('form').forEach(form => {
+            form.addEventListener('submit', function(e) {
+                const startDate = new Date(this.date_debut.value);
+                const endDate = new Date(this.date_fin.value);
+                
+                if (endDate <= startDate) {
                     e.preventDefault();
-                    const card = btn.closest('.card');
-                    const startDate = card.querySelector('input[type="date"]:first-of-type').value;
-                    const endDate = card.querySelector('input[type="date"]:last-of-type').value;
-                    
-                    if (!startDate || !endDate) {
-                        alert('Please select both start and end dates');
-                        return;
-                    }
-                    
-                    if (new Date(startDate) > new Date(endDate)) {
-                        alert('End date must be after start date');
-                        return;
-                    }
-                    
-                    // Update UI and switch to reservations
-                    const statusBadge = card.querySelector('span');
-                    statusBadge.textContent = 'Reserved';
-                    statusBadge.classList.remove('from-green-400', 'to-green-600');
-                    statusBadge.classList.add('from-orange-400', 'to-orange-600', 'reserved-badge');
-                    
-                    setTimeout(() => showReservations.click(), 500);
-                });
+                    alert('End date must be after start date');
+                }
             });
         });
-        
-        // Prevent back navigation
-        history.pushState(null, null, location.href);
-        window.onpopstate = function () {
-            history.pushState(null, null, location.href);
-        };
     </script>
 </body>
 </html>
