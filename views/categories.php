@@ -159,20 +159,31 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
 <body class="">
     <!-- Side Bar -->
-    <div class="fixed top-0 left-0 w-[230px] h-[100%] z-50 overflow-hidden sidebar">
+   <div class="fixed top-0 left-0 w-[230px] h-[100%] z-50 overflow-hidden sidebar">
         <a href="" class="logo text-xl font-bold h-[56px] flex items-center text-[#1976D2] z-30 pb-[20px] box-content">
             <i class="mt-4 text-xxl max-w-[60px] flex justify-center"><i class="fa-solid fa-car-side"></i></i>
             <div class="logoname ml-2"><span>Loca</span>Auto</div>
         </a>
         <ul class="side-menu w-full mt-12">
-            <li class="h-12 bg-transparent ml-2.5 rounded-l-full p-1"><a href="listClients.php"><i class="fa-solid fa-user-group"></i>Clients</a></li>
-            <li class="h-12 bg-transparent ml-2.5 rounded-l-full p-1"><a href="listCars.php"><i class="fa-solid fa-car"></i>Cars</a></li>
-            <li class="active h-12 bg-transparent ml-1.5 rounded-l-full p-1"><a href="listContrat.php"><i class="fa-solid fa-file-contract"></i>Categories</a></li>
-            <li class="h-12 bg-transparent ml-1.5 rounded-l-full p-1"><a href="statistic.php"><i class="fa-solid fa-chart-simple"></i>Statistic</a></li>
-        </ul>
-        <ul class="side-menu w-full mt-12">
+            <li class="h-12 bg-transparent ml-2.5 rounded-l-full p-1"><a href="listClients.php" class="menu-item"><i class="fa-solid fa-user-group"></i>Clients</a></li>
+            <li class="h-12 bg-transparent ml-2.5 rounded-l-full p-1"><a href="listCars.php" class="menu-item"><i class="fa-solid fa-car"></i>Cars</a></li>
+            <li class="active h-12 bg-transparent ml-1.5 rounded-l-full p-1"><a href="categories.php" class="menu-item"><i class="fa-solid fa-file-contract"></i>Categories</a></li>
+            <li class="active h-12 bg-transparent ml-1.5 rounded-l-full p-1"><a href="listReservation.php" class="menu-item"><i class="fa-solid fa-calendar-check"></i>Reservations</a></li>
             <li class="h-12 bg-transparent ml-2.5 rounded-l-full p-1">
-                <a href=".././controllers/logout.php" class="logout">
+            <a href="listThemes.php" class="menu-item"><i class="fa-solid fa-layer-group"></i>Themes</a>
+        </li>
+        <li class="h-12 bg-transparent ml-2.5 rounded-l-full p-1">
+            <a href="listArticle.php" class="menu-item"><i class="fa-solid fa-newspaper"></i>Articles</a>
+        </li>
+        <li class="h-12 bg-transparent ml-1.5 rounded-l-full p-1">
+            <a href="listTags.php" class="menu-item"><i class="fa-solid fa-tags"></i>Tags</a>
+        </li>
+        <li class="active h-12 bg-transparent ml-1.5 rounded-l-full p-1">
+            <a href="listCommentaires.php" class="menu-item"><i class="fa-solid fa-comments"></i>Comments</a>
+        </li>
+             <ul class="side-menu w-full mt-12">
+            <li class="h-12 bg-transparent ml-2.5 rounded-l-full p-1">
+            <a href=".././controllers/logout.php" class="logout">
                     <i class='bx bx-log-out-circle'></i> Logout
                 </a>
             </li>

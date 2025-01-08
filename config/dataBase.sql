@@ -63,3 +63,61 @@ CREATE TABLE avis (
     FOREIGN KEY (utilisateur_id) REFERENCES utilisateur(id) ON DELETE CASCADE,
     FOREIGN KEY (vehicule_id) REFERENCES vehicule(id) ON DELETE CASCADE
 );
+*********************************************
+-- Article Table
+CREATE TABLE Article (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    titre VARCHAR(255) NOT NULL,
+    contenu TEXT NOT NULL,
+    dateCreation DATETIME DEFAULT CURRENT_TIMESTAMP,
+    estApprouve BOOLEAN DEFAULT FALSE,
+    statut VARCHAR(50),
+    utilisateur_id INT NOT NULL,
+    theme_id INT NOT NULL,
+    FOREIGN KEY (utilisateur_id) REFERENCES User(id),
+    FOREIGN KEY (theme_id) REFERENCES Theme(id)
+);
+
+-- Theme Table
+CREATE TABLE Theme (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    nom VARCHAR(100) NOT NULL UNIQUE,
+    description TEXT
+);
+
+-- Tag Table
+CREATE TABLE Tag (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    nom VARCHAR(50) NOT NULL UNIQUE
+);
+
+-- Article_Tag Table (Junction table for Many-to-Many relationship)
+CREATE TABLE Article_Tag (
+    article_id INT,
+    tag_id INT,
+    PRIMARY KEY (article_id, tag_id),
+    FOREIGN KEY (article_id) REFERENCES Article(id) ON DELETE CASCADE,
+    FOREIGN KEY (tag_id) REFERENCES Tag(id) ON DELETE CASCADE
+);
+
+-- Commentaire Table
+CREATE TABLE Commentaire (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    contenu TEXT NOT NULL,
+    dateCreation DATETIME DEFAULT CURRENT_TIMESTAMP,
+    utilisateur_id INT NOT NULL,
+    article_id INT NOT NULL,
+    FOREIGN KEY (utilisateur_id) REFERENCES User(id),
+    FOREIGN KEY (article_id) REFERENCES Article(id) ON DELETE CASCADE
+);
+
+-- Favori Table
+CREATE TABLE Favori (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    dateAjout DATETIME DEFAULT CURRENT_TIMESTAMP,
+    utilisateur_id INT NOT NULL,
+    article_id INT NOT NULL,
+    FOREIGN KEY (utilisateur_id) REFERENCES User(id),
+    FOREIGN KEY (article_id) REFERENCES Article(id) ON DELETE CASCADE,
+    UNIQUE KEY unique_favori (utilisateur_id, article_id)
+);

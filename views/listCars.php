@@ -1,172 +1,18 @@
 <?php
-include '../config/databasecnx.php';
+// views/listCars.php
 
-class Vehicle {
-    private $db;
-    private $marque;
-    private $modele;
-    private $categorie_id;
-    private $prix_journalier;
-    private $disponibilite;
-    private $description;
-    private $image_url;
+require_once '../config/databasecnx.php';
+require_once '../Classes/Voiture.php';
+require_once '../auth.php';
 
-    public function __construct($db) {
-        $this->db = $db;
-    }
+// Check if user is logged in and is an admin
+ // 1 is the role_id for admin
 
-    public function setData($marque, $modele, $categorie_id, $prix_journalier, $disponibilite, $description, $image_url) {
-        $this->marque = $marque;
-        $this->modele = $modele;
-        $this->categorie_id = $categorie_id;
-        $this->prix_journalier = $prix_journalier;
-        $this->disponibilite = $disponibilite;
-        $this->description = $description;
-        $this->image_url = $image_url;
-    }
-
-    public function getCategories() {
-        $query = "SELECT id, nom FROM categorie ORDER BY nom";
-        $result = $this->db->query($query);
-        
-        if ($result) {
-            return $result->fetch_all(MYSQLI_ASSOC);
-        }
-        return [];
-    }
-
-    public function save() {
-        $query = "INSERT INTO vehicule (marque, modele, categorie_id, prix_journalier, disponibilite, description, image_url) 
-                 VALUES (?, ?, ?, ?, ?, ?, ?)";
-        $stmt = $this->db->prepare($query);
-        
-        if ($stmt) {
-            $stmt->bind_param("ssidiss", 
-                $this->marque, 
-                $this->modele, 
-                $this->categorie_id,
-                $this->prix_journalier, 
-                $this->disponibilite, 
-                $this->description, 
-                $this->image_url
-            );
-            
-            try {
-                $result = $stmt->execute();
-                $stmt->close();
-                return $result ? "success" : "error: " . $this->db->error;
-            } catch (Exception $e) {
-                return "error: " . $e->getMessage();
-            }
-        }
-        return "error: " . $this->db->error;
-    }
-
-    public function fetchAll() {
-        $query = "SELECT v.*, c.nom as nom_categorie 
-                 FROM vehicule v 
-                 LEFT JOIN categorie c ON v.categorie_id = c.id 
-                 ORDER BY v.id DESC";
-        $result = $this->db->query($query);
-        
-        if ($result) {
-            return $result->fetch_all(MYSQLI_ASSOC);
-        }
-        return [];
-    }
-}
-
-// Process form submission
-if ($_SERVER["REQUEST_METHOD"] == "POST") {
-    try {
-        $db = (new ConnectData())->getConnection();
-        
-        if (!$db) {
-            throw new Exception("Database connection failed");
-        }
-
-        $vehicle = new Vehicle($db);
-        $uploadDir = '../uploads/';
-        $errors = [];
-        $success = [];
-
-        // Create uploads directory if it doesn't exist
-        if (!file_exists($uploadDir)) {
-            mkdir($uploadDir, 0777, true);
-        }
-
-        // Loop through each car
-        $numCars = count($_POST['currentMarque'] ?? []);
-        for ($i = 0; $i < $numCars; $i++) {
-            // Validate required fields
-            if (empty($_POST['currentMarque'][$i]) || empty($_POST['currentModele'][$i])) {
-                $errors[] = "Marque and Modele are required for car #" . ($i + 1);
-                continue;
-            }
-
-            // Handle image upload
-            $imagePath = null;
-            if (isset($_FILES['currentImageFile']['name'][$i]) && $_FILES['currentImageFile']['error'][$i] === 0) {
-                $fileName = time() . '_' . basename($_FILES['currentImageFile']['name'][$i]);
-                $targetPath = $uploadDir . $fileName;
-                
-                // Validate image
-                $imageFileType = strtolower(pathinfo($targetPath, PATHINFO_EXTENSION));
-                $allowedTypes = ['jpg', 'jpeg', 'png', 'gif'];
-                
-                if (!in_array($imageFileType, $allowedTypes)) {
-                    $errors[] = "Only JPG, JPEG, PNG & GIF files are allowed for car #" . ($i + 1);
-                    continue;
-                }
-                
-                if (move_uploaded_file($_FILES['currentImageFile']['tmp_name'][$i], $targetPath)) {
-                    $imagePath = 'uploads/' . $fileName;
-                } else {
-                    $errors[] = "Failed to upload image for car #" . ($i + 1);
-                    continue;
-                }
-            }
-
-            // Set and save vehicle data
-            $vehicle->setData(
-                $_POST['currentMarque'][$i],
-                $_POST['currentModele'][$i],
-                $_POST['currentCategory'][$i],
-                $_POST['currentPrixJournalier'][$i],
-                $_POST['currentDisponibilite'][$i],
-                $_POST['currentDescription'][$i],
-                $imagePath
-            );
-
-            $result = $vehicle->save();
-            if ($result === "success") {
-                $success[] = "Vehicle #" . ($i + 1) . " added successfully";
-            } else {
-                $errors[] = "Failed to add vehicle #" . ($i + 1) . ": " . $result;
-            }
-        }
-
-        // Return JSON response
-        echo json_encode([
-            'status' => empty($errors) ? 'success' : 'error',
-            'errors' => $errors,
-            'success' => $success
-        ]);
-        
-    } catch (Exception $e) {
-        echo json_encode([
-            'status' => 'error',
-            'errors' => ["System error: " . $e->getMessage()],
-            'success' => []
-        ]);
-    }
-    exit;
-}
-
-// Get categories for the form
 $db = (new ConnectData())->getConnection();
 $vehicle = new Vehicle($db);
-$categories = $vehicle->getCategories();
+$vehicles = $vehicle->fetchAll();
+
+
 ?>
 
 
@@ -197,11 +43,22 @@ $categories = $vehicle->getCategories();
             <li class="h-12 bg-transparent ml-2.5 rounded-l-full p-1"><a href="listClients.php" class="menu-item"><i class="fa-solid fa-user-group"></i>Clients</a></li>
             <li class="h-12 bg-transparent ml-2.5 rounded-l-full p-1"><a href="listCars.php" class="menu-item"><i class="fa-solid fa-car"></i>Cars</a></li>
             <li class="active h-12 bg-transparent ml-1.5 rounded-l-full p-1"><a href="categories.php" class="menu-item"><i class="fa-solid fa-file-contract"></i>Categories</a></li>
-            <li class="h-12 bg-transparent ml-1.5 rounded-l-full p-1"><a href="statistic.php" class="menu-item"><i class="fa-solid fa-chart-simple"></i>Statistic</a></li>
-        </ul>
-        <ul class="side-menu w-full mt-12">
+            <li class="active h-12 bg-transparent ml-1.5 rounded-l-full p-1"><a href="listReservation.php" class="menu-item"><i class="fa-solid fa-calendar-check"></i>Reservations</a></li>
             <li class="h-12 bg-transparent ml-2.5 rounded-l-full p-1">
-                <a href=".././controllers/logout.php" class="logout">
+            <a href="listThemes.php" class="menu-item"><i class="fa-solid fa-layer-group"></i>Themes</a>
+        </li>
+        <li class="h-12 bg-transparent ml-2.5 rounded-l-full p-1">
+            <a href="listArticle.php" class="menu-item"><i class="fa-solid fa-newspaper"></i>Articles</a>
+        </li>
+        <li class="h-12 bg-transparent ml-1.5 rounded-l-full p-1">
+            <a href="listTags.php" class="menu-item"><i class="fa-solid fa-tags"></i>Tags</a>
+        </li>
+        <li class="active h-12 bg-transparent ml-1.5 rounded-l-full p-1">
+            <a href="listCommentaires.php" class="menu-item"><i class="fa-solid fa-comments"></i>Comments</a>
+        </li>
+             <ul class="side-menu w-full mt-12">
+            <li class="h-12 bg-transparent ml-2.5 rounded-l-full p-1">
+            <a href=".././controllers/logout.php" class="logout">
                     <i class='bx bx-log-out-circle'></i> Logout
                 </a>
             </li>

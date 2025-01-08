@@ -1,38 +1,26 @@
 <?php
-
-class DatabaseConnection {
+class ConnectData {
     private $host = "localhost";
     private $username = "root";
     private $password = "";
     private $database = "location";
-    private $connection;
+    public $connection;
 
     public function __construct() {
-        $this->connect();
-    }
-
-    private function connect() {
         $this->connection = new mysqli($this->host, $this->username, $this->password, $this->database);
 
         if ($this->connection->connect_error) {
-            die("Connection failed: " . $this->connection->connect_error);
+            die("Database connection failed: " . $this->connection->connect_error);
         } else {
-            // echo "Connection successful!";
+            echo "3la slamtak"; // Success message
         }
     }
 
     public function getConnection() {
         return $this->connection;
     }
-
-    public function closeConnection() {
-        if ($this->connection) {
-            $this->connection->close();
-            echo "Connection closed.";
-        }
-    }
 }
 
-
-
+// Instantiate the database connection
+$db = (new ConnectData())->getConnection();
 ?>
