@@ -123,6 +123,90 @@ if (!$userReservations) {
     $userReservations = [];
 }
 
+
+
+
+
+
+
+// Include your database connection
+
+// Check if the form is submitted
+if (isset($_POST['submit_article'])) {
+    // Retrieve data from the form
+    $title = $_POST['title'];
+    $theme_id = $_POST['theme_id'];
+    $tags = $_POST['tags']; // Tags will be stored in a hidden input as a JSON string
+    $content = $_POST['content'];
+    $status = 'published'; // Assuming the article is published. You can adjust this logic.
+
+    // Get the user ID from the session
+    $user_id = isset($_SESSION['user_id']) ? $_SESSION['user_id'] : null;
+    
+    // Handle the image upload
+    if (isset($_FILES['article_image']) && $_FILES['article_image']['error'] == 0) {
+        // Define image upload directory
+        $upload_dir = 'uploads/';
+        $image_name = basename($_FILES['article_image']['name']);
+        $image_path = $upload_dir . $image_name;
+
+        // Move the uploaded file to the server's directory
+        if (move_uploaded_file($_FILES['article_image']['tmp_name'], $image_path)) {
+            // Image uploaded successfully, now proceed to insert into the database
+        } else {
+            echo "Image upload failed.";
+            exit;
+        }
+    } else {
+        echo "Please upload an image.";
+        exit;
+    }
+
+    // Prepare the SQL query to insert the data
+    $query = $db->prepare("INSERT INTO article (titre, contenu, dateCreation, statut, utilisateur_id, theme_id, image_url) 
+                           VALUES (?, ?, NOW(), ?, ?, ?, ?)");
+
+    if (!$query) {
+        die("Query preparation failed: " . $db->error);
+    }
+
+    // Bind parameters to the query
+    $query->bind_param("sssiis", $title, $content, $status, $user_id, $theme_id, $image_path);
+
+    // Execute the query
+    if ($query->execute()) {
+        echo "Article published successfully!";
+    } else {
+        echo "Error: " . $query->error;
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// 
+
+
 function getThemes($db) {
     $themes = array();
     $query = "SELECT id, theme_name FROM Theme ORDER BY theme_name ASC";
@@ -498,19 +582,7 @@ $themes = getThemes($db);
             </div>
         </div>
 
-        <div class="space-y-2">
-    <label class="text-gray-700 font-medium">Tags</label>
-    <div class="space-y-4">
-        <!-- Tag input container -->
-        <div class="relative">
-            <input type="text" id="tagInput"
-                   class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-300 focus:outline-none"
-                   placeholder="Type a tag and press Enter or Add">
-            <button type="button" id="addTagBtn"
-                    class="absolute right-2 top-1/2 transform -translate-y-1/2 bg-blue-500 text-white px-3 py-1 rounded-md hover:bg-blue-600 text-sm">
-                Add
-            </button>
-        </div>
+    
         
         <!-- Tags display container -->
         <div id="tagsContainer" class="flex flex-wrap gap-2">
