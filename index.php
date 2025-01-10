@@ -1,15 +1,10 @@
 <?php
-// Enable error reporting for debugging
-error_reporting(E_ALL);
-ini_set('display_errors', 1);
-
 // Start session if not already started
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
-
+session_start();
 require_once 'config/databasecnx.php';
-require_once 'auth.php';
+
+
+
 
 // Debug database connection
 if ($db->connect_error) {
@@ -127,6 +122,26 @@ if (!$userReservations) {
     error_log("Reservations query error: " . $db->error);
     $userReservations = [];
 }
+
+function getThemes($db) {
+    $themes = array();
+    $query = "SELECT id, theme_name FROM Theme ORDER BY theme_name ASC";
+    $result = $db->query($query);
+    
+    if ($result) {
+        while ($row = $result->fetch_assoc()) {
+            $themes[] = $row;
+        }
+    }
+    return $themes;
+}
+
+// Get database connection using your existing class
+$db = (new ConnectData())->getConnection();
+
+// Fetch themes
+$themes = getThemes($db);
+
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -209,6 +224,7 @@ if (!$userReservations) {
         #carsPage {
             display: block; /* Make cars page visible by default */
         }
+        
     </style>
 </head>
 <body class="bg-gray-100" style="scroll-behavior: smooth;">
@@ -236,7 +252,13 @@ if (!$userReservations) {
                             <i class="fa-solid fa-clock-rotate-left mr-2"></i>
                             My Reservations
                         </button>
+                        <!-- In the navigation div where "Available Cars" and "My Reservations" buttons are -->
+<button id="showBlog" class="nav-link text-lg font-semibold hover:text-blue-800 transition-colors flex items-center">
+    <i class="fa-solid fa-blog mr-2"></i>
+    Blog
+</button>
                     </div>
+
                     
                     <div class="flex items-center space-x-6">
                         <a href="controllers/logout.php">
@@ -440,6 +462,132 @@ if (!$userReservations) {
                 <?php endif; ?>
             </div>
         </div>
+        <!-- Blog Page -->
+<div id="blogPage" class="page">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div class="flex justify-between items-center mb-8">
+            <h2 class="text-3xl font-bold text-gray-800">Blog Articles</h2>
+            <button id="showAddArticle" 
+                    class="bg-gradient-to-r from-blue-600 to-blue-800 text-white px-6 py-2.5 rounded-full transition-colors duration-300 flex items-center space-x-2">
+                <i class="fa-solid fa-plus"></i>
+                <span>Add Article</span>
+            </button>
+        </div>
+
+        <!-- Add Article Form -->
+        <div id="addArticleForm" class="hidden bg-white rounded-xl shadow-lg p-6 mb-8">
+    <h3 class="text-2xl font-bold text-gray-800 mb-6">New Article</h3>
+    <form class="space-y-6" method="POST" enctype="multipart/form-data">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div class="space-y-2">
+                <label class="text-gray-700 font-medium">Title</label>
+                <input type="text" name="title" required
+                       class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-300 focus:outline-none"
+                       placeholder="Enter article title">
+            </div>
+            <div class="form-group">
+                <label for="theme">Theme:</label>
+                <select id="theme" name="theme_id" class="form-control" required>
+                    <option value="">Select a theme</option>
+                    <?php foreach ($themes as $theme): ?>
+                        <option value="<?php echo htmlspecialchars($theme['id']); ?>">
+                            <?php echo htmlspecialchars($theme['theme_name']); ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+        </div>
+
+        <div class="space-y-2">
+    <label class="text-gray-700 font-medium">Tags</label>
+    <div class="space-y-4">
+        <!-- Tag input container -->
+        <div class="relative">
+            <input type="text" id="tagInput"
+                   class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-300 focus:outline-none"
+                   placeholder="Type a tag and press Enter or Add">
+            <button type="button" id="addTagBtn"
+                    class="absolute right-2 top-1/2 transform -translate-y-1/2 bg-blue-500 text-white px-3 py-1 rounded-md hover:bg-blue-600 text-sm">
+                Add
+            </button>
+        </div>
+        
+        <!-- Tags display container -->
+        <div id="tagsContainer" class="flex flex-wrap gap-2">
+            <!-- Tags will be displayed here -->
+        </div>
+        
+        <!-- Hidden input to store tags for form submission -->
+        <input type="hidden" name="tags" id="tagsInput">
+    </div>
+</div>
+
+
+        <div class="space-y-2">
+            <label class="text-gray-700 font-medium">Article Image</label>
+            <div class="flex flex-col space-y-2">
+                <div class="relative border-2 border-dashed border-gray-300 rounded-lg p-6">
+                    <input type="file" name="article_image" required accept="image/*"
+                           class="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                           onchange="previewImage(this)">
+                    <div class="text-center" id="upload-text">
+                        <i class="fas fa-cloud-upload-alt text-gray-400 text-3xl mb-2"></i>
+                        <p class="text-gray-500">Click to upload or drag and drop</p>
+                        <p class="text-sm text-gray-400">PNG, JPG, GIF up to 5MB</p>
+                    </div>
+                    <img id="image-preview" class="hidden max-h-48 mx-auto">
+                </div>
+            </div>
+        </div>
+
+        <div class="space-y-2">
+            <label class="text-gray-700 font-medium">Content</label>
+            <textarea name="content" required
+                      class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-300 focus:outline-none h-32"
+                      placeholder="Write your article content here"></textarea>
+        </div>
+
+        <div class="flex justify-end space-x-4">
+            <button type="button" id="cancelArticle"
+                    class="px-6 py-2.5 border border-gray-300 rounded-full hover:bg-gray-50 transition-colors duration-300">
+                Cancel
+            </button>
+            <button type="submit" name="submit_article"
+                    class="bg-gradient-to-r from-blue-600 to-blue-800 text-white px-6 py-2.5 rounded-full hover:from-blue-700 hover:to-blue-900 transition-all duration-300">
+                Publish Article
+            </button>
+        </div>
+    </form>
+</div>
+
+
+
+        <!-- Sample Articles Display -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <!-- Sample Article Card -->
+            <div class="card rounded-2xl shadow-lg overflow-hidden">
+                <div class="relative">
+                    <img src="/api/placeholder/400/300" alt="Article Image" class="w-full h-48 object-cover">
+                    <span class="absolute top-4 right-4 bg-blue-500 text-white px-4 py-1.5 rounded-full font-semibold">
+                        Technology
+                    </span>
+                </div>
+                <div class="p-6 space-y-4">
+                    <h3 class="font-bold text-2xl text-gray-800">The Future of Electric Cars</h3>
+                    <div class="flex flex-wrap gap-2">
+                        <span class="bg-gray-100 text-gray-600 px-3 py-1 rounded-full text-sm">Electric</span>
+                        <span class="bg-gray-100 text-gray-600 px-3 py-1 rounded-full text-sm">Future</span>
+                        <span class="bg-gray-100 text-gray-600 px-3 py-1 rounded-full text-sm">Technology</span>
+                    </div>
+                    <p class="text-gray-600">Electric vehicles are revolutionizing the automotive industry...</p>
+                    <button class="text-blue-600 font-semibold hover:text-blue-800 transition-colors">
+                        Read More →
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
     </div>
 
     <script>
@@ -486,7 +634,137 @@ if (!$userReservations) {
         history.pushState(null, null, location.href);
         window.onpopstate = function () {
             history.pushState(null, null, location.href);
+
+
+            // Add these to your existing script section
+
+
+// Add this animation to your existing CSS
+
         };
+        document.addEventListener('DOMContentLoaded', function() {
+    // Get all page elements
+    const showCars = document.getElementById('showCars');
+    const showReservations = document.getElementById('showReservations');
+    const showBlog = document.getElementById('showBlog');
+    const carsPage = document.getElementById('carsPage');
+    const reservationsPage = document.getElementById('reservationsPage');
+    const blogPage = document.getElementById('blogPage');
+    const showAddArticle = document.getElementById('showAddArticle');
+    const addArticleForm = document.getElementById('addArticleForm');
+    const cancelArticle = document.getElementById('cancelArticle');
+
+    // Navigation buttons
+    const navButtons = [showCars, showReservations, showBlog];
+    // Pages
+    const pages = [carsPage, reservationsPage, blogPage];
+
+    function switchPage(activeButton) {
+        // Remove active class from all buttons and hide all pages
+        navButtons.forEach(btn => btn.classList.remove('active'));
+        pages.forEach(page => page.style.display = 'none');
+
+        // Add active class to clicked button
+        activeButton.classList.add('active');
+
+        // Show corresponding page
+        if (activeButton === showCars) {
+            carsPage.style.display = 'block';
+        } else if (activeButton === showReservations) {
+            reservationsPage.style.display = 'block';
+        } else if (activeButton === showBlog) {
+            blogPage.style.display = 'block';
+        }
+    }
+
+    // Add click events for navigation
+    showCars.addEventListener('click', () => switchPage(showCars));
+    showReservations.addEventListener('click', () => switchPage(showReservations));
+    showBlog.addEventListener('click', () => switchPage(showBlog));
+
+    // Blog article form handling
+    showAddArticle?.addEventListener('click', () => {
+        addArticleForm.classList.remove('hidden');
+        addArticleForm.classList.add('animate-fadeIn');
+    });
+
+    cancelArticle?.addEventListener('click', () => {
+        addArticleForm.classList.add('hidden');
+        addArticleForm.classList.remove('animate-fadeIn');
+    });
+
+    // Prevent back button
+    history.pushState(null, null, location.href);
+    window.onpopstate = function() {
+        history.pushState(null, null, location.href);
+    };
+});
+document.addEventListener('DOMContentLoaded', function() {
+    const tagInput = document.getElementById('tagInput');
+    const addTagBtn = document.getElementById('addTagBtn');
+    const tagsContainer = document.getElementById('tagsContainer');
+    const hiddenTagsInput = document.getElementById('tagsInput');
+    let tags = [];
+
+    // Function to create a new tag
+    function createTag(tagText) {
+        const tag = document.createElement('div');
+        tag.className = 'bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm flex items-center gap-2';
+        
+        const tagContent = document.createElement('span');
+        tagContent.textContent = tagText;
+        
+        const removeBtn = document.createElement('button');
+        removeBtn.innerHTML = '&times;';
+        removeBtn.className = 'hover:text-blue-900 font-bold';
+        removeBtn.type = 'button';
+        
+        removeBtn.onclick = function() {
+            tag.remove();
+            tags = tags.filter(t => t !== tagText);
+            updateHiddenInput();
+        };
+        
+        tag.appendChild(tagContent);
+        tag.appendChild(removeBtn);
+        return tag;
+    }
+
+    // Function to add a new tag
+    function addTag() {
+        const tagText = tagInput.value.trim();
+        if (tagText && !tags.includes(tagText)) {
+            tags.push(tagText);
+            tagsContainer.appendChild(createTag(tagText));
+            tagInput.value = '';
+            updateHiddenInput();
+        }
+    }
+
+    // Function to update hidden input value
+    function updateHiddenInput() {
+        hiddenTagsInput.value = tags.join(',');
+    }
+
+    // Event listeners
+    addTagBtn.addEventListener('click', addTag);
+
+    tagInput.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            addTag();
+        }
+    });
+
+    // Add some sample tags if needed
+    /*
+    ['Technology', 'Cars', 'Electric'].forEach(tag => {
+        tags.push(tag);
+        tagsContainer.appendChild(createTag(tag));
+    });
+    updateHiddenInput();
+    */
+});
     </script>
 </body>
 </html>

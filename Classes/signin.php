@@ -25,6 +25,15 @@ class Login {
             if ($result->num_rows === 1) {
                 $user = $result->fetch_assoc();
                 if (password_verify($password, $user['mot_de_passe'])) {
+                    // Start session if not already started
+                    if (session_status() === PHP_SESSION_NONE) {
+                        session_start();
+                    }
+
+                    // Regenerate session ID for security
+                    session_regenerate_id(true);
+
+                    // Set session variables
                     $_SESSION['user_id'] = $user['id'];
                     $_SESSION['username'] = $username;
                     $_SESSION['role_id'] = $user['role_id'];
@@ -147,9 +156,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['sign-up-submit'])) {
         }
     }
 }
-
-// Rest of your HTML code remains the same
 ?>
+
 
 <!DOCTYPE html>
 <!-- Your existing HTML code remains exactly the same -->

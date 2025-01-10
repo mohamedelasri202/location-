@@ -74,7 +74,7 @@ CREATE TABLE Article (
     statut VARCHAR(50),
     utilisateur_id INT NOT NULL,
     theme_id INT NOT NULL,
-    FOREIGN KEY (utilisateur_id) REFERENCES User(id),
+    FOREIGN KEY (utilisateur_id) REFERENCES utilisateur (id),
     FOREIGN KEY (theme_id) REFERENCES Theme(id)
 );
 
@@ -107,7 +107,7 @@ CREATE TABLE Commentaire (
     dateCreation DATETIME DEFAULT CURRENT_TIMESTAMP,
     utilisateur_id INT NOT NULL,
     article_id INT NOT NULL,
-    FOREIGN KEY (utilisateur_id) REFERENCES User(id),
+    FOREIGN KEY (utilisateur_id) REFERENCES utilisateur(id),
     FOREIGN KEY (article_id) REFERENCES Article(id) ON DELETE CASCADE
 );
 
@@ -117,7 +117,7 @@ CREATE TABLE Favori (
     dateAjout DATETIME DEFAULT CURRENT_TIMESTAMP,
     utilisateur_id INT NOT NULL,
     article_id INT NOT NULL,
-    FOREIGN KEY (utilisateur_id) REFERENCES User(id),
+    FOREIGN KEY (utilisateur_id) REFERENCES utilisateur(id),
     FOREIGN KEY (article_id) REFERENCES Article(id) ON DELETE CASCADE,
     UNIQUE KEY unique_favori (utilisateur_id, article_id)
 );

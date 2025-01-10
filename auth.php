@@ -11,7 +11,7 @@
 //         exit;
 //     }
     
-    // If a specific role is required, check for it
+//     If a specific role is required, check for it
 //     if ($requiredRole !== null && $_SESSION['role_id'] != $requiredRole) {
 //         if ($_SESSION['role_id'] == 1) {
 //             header("Location: views/listCars.php");
