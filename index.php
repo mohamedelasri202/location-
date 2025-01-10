@@ -131,67 +131,159 @@ if (!$userReservations) {
 
 // Include your database connection
 
-// Check if the form is submitted
-if (isset($_POST['submit_article'])) {
-    // Retrieve data from the form
-    $title = $_POST['title'];
-    $theme_id = $_POST['theme_id'];
-    $tags = $_POST['tags']; // Tags will be stored in a hidden input as a JSON string
-    $content = $_POST['content'];
-    $status = 'published'; // Assuming the article is published. You can adjust this logic.
-
-    // Get the user ID from the session
-    $user_id = isset($_SESSION['user_id']) ? $_SESSION['user_id'] : null;
-    
-    // Handle the image upload
-    if (isset($_FILES['article_image']) && $_FILES['article_image']['error'] == 0) {
-        // Define image upload directory
-        $upload_dir = 'uploads/';
-        $image_name = basename($_FILES['article_image']['name']);
-        $image_path = $upload_dir . $image_name;
-
-        // Move the uploaded file to the server's directory
-        if (move_uploaded_file($_FILES['article_image']['tmp_name'], $image_path)) {
-            // Image uploaded successfully, now proceed to insert into the database
-        } else {
-            echo "Image upload failed.";
-            exit;
+// Process article submission
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_article'])) {
+    try {
+        // Start transaction
+        $db->begin_transaction();
+        
+        // Get form data
+        $title = $_POST['title'];
+        $theme_id = $_POST['theme_id'];
+        $content = $_POST['content'];
+        $user_id = $_SESSION['user_id'];
+        $tags = !empty($_POST['tags']) ? explode(',', $_POST['tags']) : [];
+        
+        // Handle image upload
+        $image_path = '';
+        if (isset($_FILES['article_image']) && $_FILES['article_image']['error'] == 0) {
+            $upload_dir = 'uploads/articles/';
+            
+            // Create directory if it doesn't exist
+            if (!file_exists($upload_dir)) {
+                mkdir($upload_dir, 0777, true);
+            }
+            
+            // Generate unique filename
+            $file_extension = pathinfo($_FILES['article_image']['name'], PATHINFO_EXTENSION);
+            $file_name = uniqid('article_') . '.' . $file_extension;
+            $image_path = $upload_dir . $file_name;
+            
+            // Move uploaded file
+            if (!move_uploaded_file($_FILES['article_image']['tmp_name'], $image_path)) {
+                throw new Exception("Failed to upload image");
+            }
         }
-    } else {
-        echo "Please upload an image.";
-        exit;
-    }
-
-    // Prepare the SQL query to insert the data
-    $query = $db->prepare("INSERT INTO article (titre, contenu, dateCreation, statut, utilisateur_id, theme_id, image_url) 
-                           VALUES (?, ?, NOW(), ?, ?, ?, ?)");
-
-    if (!$query) {
-        die("Query preparation failed: " . $db->error);
-    }
-
-    // Bind parameters to the query
-    $query->bind_param("sssiis", $title, $content, $status, $user_id, $theme_id, $image_path);
-
-    // Execute the query
-    if ($query->execute()) {
-        echo "Article published successfully!";
-    } else {
-        echo "Error: " . $query->error;
+        
+        // Insert article
+        $article_query = $db->prepare("
+            INSERT INTO Article (titre, contenu, dateCreation, statut, utilisateur_id, theme_id, image_url) 
+            VALUES (?, ?, NOW(), 'published', ?, ?, ?)
+        ");
+        
+        $article_query->bind_param("ssiis", $title, $content, $user_id, $theme_id, $image_path);
+        
+        if (!$article_query->execute()) {
+            throw new Exception("Failed to insert article: " . $db->error);
+        }
+        
+        $article_id = $db->insert_id;
+        
+        // Handle tags
+        if (!empty($tags)) {
+            foreach ($tags as $tag_name) {
+                // Clean tag name
+                $tag_name = trim($tag_name);
+                
+                // First, try to find if tag exists
+                $find_tag = $db->prepare("SELECT id FROM Tag WHERE nom = ?");
+                $find_tag->bind_param("s", $tag_name);
+                $find_tag->execute();
+                $result = $find_tag->get_result();
+                
+                if ($result->num_rows > 0) {
+                    // Tag exists, get its ID
+                    $tag_id = $result->fetch_assoc()['id'];
+                } else {
+                    // Tag doesn't exist, create it
+                    $create_tag = $db->prepare("INSERT INTO Tag (nom) VALUES (?)");
+                    $create_tag->bind_param("s", $tag_name);
+                    
+                    if (!$create_tag->execute()) {
+                        throw new Exception("Failed to create tag: " . $db->error);
+                    }
+                    
+                    $tag_id = $db->insert_id;
+                }
+                
+                // Link article and tag in Article_Tag table
+                $link_tag = $db->prepare("INSERT INTO Article_Tag (article_id, tag_id) VALUES (?, ?)");
+                $link_tag->bind_param("ii", $article_id, $tag_id);
+                
+                if (!$link_tag->execute()) {
+                    throw new Exception("Failed to link article and tag: " . $db->error);
+                }
+            }
+        }
+        
+        // Commit transaction
+        $db->commit();
+        
+        $_SESSION['success_message'] = "Article published successfully!";
+        
+        // Redirect to avoid form resubmission
+        header("Location: " . $_SERVER['PHP_SELF']);
+        exit();
+        
+    } catch (Exception $e) {
+        // Rollback transaction on error
+        $db->rollback();
+        
+        // Delete uploaded image if it exists
+        if (!empty($image_path) && file_exists($image_path)) {
+            unlink($image_path);
+        }
+        
+        $_SESSION['error_message'] = "Error: " . $e->getMessage();
     }
 }
 
+// Display success/error messages
+if (isset($_SESSION['success_message'])) {
+    echo '<div class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-4">' . 
+         htmlspecialchars($_SESSION['success_message']) . 
+         '</div>';
+    unset($_SESSION['success_message']);
+}
 
+if (isset($_SESSION['error_message'])) {
+    echo '<div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">' . 
+         htmlspecialchars($_SESSION['error_message']) . 
+         '</div>';
+    unset($_SESSION['error_message']);
+}
 
+// First, fetch articles with user information
+$articlesQuery = "
+    SELECT 
+        a.id,
+        a.titre,
+        a.image_url,
+        a.contenu,
+        a.dateCreation,
+        t.theme_name,
+        u.nom as username,  -- Changed from u.username to u.nom
+        GROUP_CONCAT(tag.nom) as tags
+    FROM Article a
+    JOIN Theme t ON a.theme_id = t.id
+    JOIN utilisateur u ON a.utilisateur_id = u.id  -- Changed Utilisateur to utilisateur (case sensitive)
+    LEFT JOIN Article_Tag at ON a.id = at.article_id
+    LEFT JOIN Tag tag ON at.tag_id = tag.id
+    GROUP BY a.id, a.titre, a.image_url, a.contenu, a.dateCreation, t.theme_name, u.nom
+    ORDER BY a.dateCreation DESC
+";
 
-
-
-
-
-
-
-
-
+// Debug the query
+try {
+    $result = $db->query($articlesQuery);
+    if (!$result) {
+        throw new Exception($db->error);
+    }
+    $articles = $result->fetch_all(MYSQLI_ASSOC);
+} catch (Exception $e) {
+    echo "Error: " . $e->getMessage();
+    $articles = [];
+}
 
 
 
@@ -546,7 +638,7 @@ $themes = getThemes($db);
                 <?php endif; ?>
             </div>
         </div>
-        <!-- Blog Page -->
+       <!-- Blog Page -->
 <div id="blogPage" class="page">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div class="flex justify-between items-center mb-8">
@@ -560,282 +652,317 @@ $themes = getThemes($db);
 
         <!-- Add Article Form -->
         <div id="addArticleForm" class="hidden bg-white rounded-xl shadow-lg p-6 mb-8">
-    <h3 class="text-2xl font-bold text-gray-800 mb-6">New Article</h3>
-    <form class="space-y-6" method="POST" enctype="multipart/form-data">
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div class="space-y-2">
-                <label class="text-gray-700 font-medium">Title</label>
-                <input type="text" name="title" required
-                       class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-300 focus:outline-none"
-                       placeholder="Enter article title">
-            </div>
-            <div class="form-group">
-                <label for="theme">Theme:</label>
-                <select id="theme" name="theme_id" class="form-control" required>
-                    <option value="">Select a theme</option>
-                    <?php foreach ($themes as $theme): ?>
-                        <option value="<?php echo htmlspecialchars($theme['id']); ?>">
-                            <?php echo htmlspecialchars($theme['theme_name']); ?>
-                        </option>
-                    <?php endforeach; ?>
-                </select>
-            </div>
-        </div>
-
-    
-        
-        <!-- Tags display container -->
-        <div id="tagsContainer" class="flex flex-wrap gap-2">
-            <!-- Tags will be displayed here -->
-        </div>
-        
-        <!-- Hidden input to store tags for form submission -->
-        <input type="hidden" name="tags" id="tagsInput">
-    </div>
-</div>
-
-
-        <div class="space-y-2">
-            <label class="text-gray-700 font-medium">Article Image</label>
-            <div class="flex flex-col space-y-2">
-                <div class="relative border-2 border-dashed border-gray-300 rounded-lg p-6">
-                    <input type="file" name="article_image" required accept="image/*"
-                           class="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                           onchange="previewImage(this)">
-                    <div class="text-center" id="upload-text">
-                        <i class="fas fa-cloud-upload-alt text-gray-400 text-3xl mb-2"></i>
-                        <p class="text-gray-500">Click to upload or drag and drop</p>
-                        <p class="text-sm text-gray-400">PNG, JPG, GIF up to 5MB</p>
+            <h3 class="text-2xl font-bold text-gray-800 mb-6">New Article</h3>
+            <form class="space-y-6" method="POST" enctype="multipart/form-data">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="space-y-2">
+                        <label class="text-gray-700 font-medium">Title</label>
+                        <input type="text" name="title" required
+                               class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-300 focus:outline-none"
+                               placeholder="Enter article title">
                     </div>
-                    <img id="image-preview" class="hidden max-h-48 mx-auto">
-                </div>
-            </div>
-        </div>
-
-        <div class="space-y-2">
-            <label class="text-gray-700 font-medium">Content</label>
-            <textarea name="content" required
-                      class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-300 focus:outline-none h-32"
-                      placeholder="Write your article content here"></textarea>
-        </div>
-
-        <div class="flex justify-end space-x-4">
-            <button type="button" id="cancelArticle"
-                    class="px-6 py-2.5 border border-gray-300 rounded-full hover:bg-gray-50 transition-colors duration-300">
-                Cancel
-            </button>
-            <button type="submit" name="submit_article"
-                    class="bg-gradient-to-r from-blue-600 to-blue-800 text-white px-6 py-2.5 rounded-full hover:from-blue-700 hover:to-blue-900 transition-all duration-300">
-                Publish Article
-            </button>
-        </div>
-    </form>
-</div>
-
-
-
-        <!-- Sample Articles Display -->
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            <!-- Sample Article Card -->
-            <div class="card rounded-2xl shadow-lg overflow-hidden">
-                <div class="relative">
-                    <img src="/api/placeholder/400/300" alt="Article Image" class="w-full h-48 object-cover">
-                    <span class="absolute top-4 right-4 bg-blue-500 text-white px-4 py-1.5 rounded-full font-semibold">
-                        Technology
-                    </span>
-                </div>
-                <div class="p-6 space-y-4">
-                    <h3 class="font-bold text-2xl text-gray-800">The Future of Electric Cars</h3>
-                    <div class="flex flex-wrap gap-2">
-                        <span class="bg-gray-100 text-gray-600 px-3 py-1 rounded-full text-sm">Electric</span>
-                        <span class="bg-gray-100 text-gray-600 px-3 py-1 rounded-full text-sm">Future</span>
-                        <span class="bg-gray-100 text-gray-600 px-3 py-1 rounded-full text-sm">Technology</span>
+                    <div class="space-y-2">
+                        <label class="text-gray-700 font-medium">Theme</label>
+                        <select name="theme_id" required 
+                                class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-300 focus:outline-none">
+                            <option value="">Select a theme</option>
+                            <?php foreach ($themes as $theme): ?>
+                                <option value="<?php echo htmlspecialchars($theme['id']); ?>">
+                                    <?php echo htmlspecialchars($theme['theme_name']); ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
                     </div>
-                    <p class="text-gray-600">Electric vehicles are revolutionizing the automotive industry...</p>
-                    <button class="text-blue-600 font-semibold hover:text-blue-800 transition-colors">
-                        Read More →
+                </div>
+
+                <div class="space-y-2">
+                    <label class="text-gray-700 font-medium">Article Image</label>
+                    <div class="flex flex-col space-y-2">
+                        <div class="relative border-2 border-dashed border-gray-300 rounded-lg p-6">
+                            <input type="file" name="article_image" required accept="image/*"
+                                   class="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                   onchange="previewImage(this)">
+                            <div class="text-center" id="upload-text">
+                                <i class="fas fa-cloud-upload-alt text-gray-400 text-3xl mb-2"></i>
+                                <p class="text-gray-500">Click to upload or drag and drop</p>
+                                <p class="text-sm text-gray-400">PNG, JPG, GIF up to 5MB</p>
+                            </div>
+                            <img id="image-preview" class="hidden max-h-48 mx-auto">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="space-y-2">
+                    <label class="text-gray-700 font-medium">Content</label>
+                    <textarea name="content" required
+                              class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-300 focus:outline-none h-32"
+                              placeholder="Write your article content here"></textarea>
+                </div>
+
+                <div class="space-y-2">
+                    <label class="text-gray-700 font-medium">Tags</label>
+                    <div class="flex items-center space-x-2">
+                        <input type="text" id="tagInput" 
+                               class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-300 focus:outline-none"
+                               placeholder="Add tags (press Enter to add)">
+                        <button type="button" id="addTagBtn"
+                                class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">
+                            Add Tag
+                        </button>
+                    </div>
+                    <!-- Tags display container -->
+                    <div id="tagsContainer" class="flex flex-wrap gap-2 mt-2">
+                        <!-- Tags will be displayed here -->
+                    </div>
+                    <!-- Hidden input to store tags for form submission -->
+                    <input type="hidden" name="tags" id="tagsInput">
+                </div>
+
+                <div class="flex justify-end space-x-4">
+                    <button type="button" id="cancelArticle"
+                            class="px-6 py-2.5 border border-gray-300 rounded-full hover:bg-gray-50 transition-colors duration-300">
+                        Cancel
+                    </button>
+                    <button type="submit" name="submit_article"
+                            class="bg-gradient-to-r from-blue-600 to-blue-800 text-white px-6 py-2.5 rounded-full hover:from-blue-700 hover:to-blue-900 transition-all duration-300">
+                        Publish Article
                     </button>
                 </div>
+            </form>
+        </div>
+
+        <!-- Articles Display -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+    <?php foreach($articles as $article): 
+        $tags = $article['tags'] ? explode(',', $article['tags']) : [];
+    ?>
+        <div class="card rounded-2xl shadow-lg overflow-hidden">
+            <!-- Author info at the top -->
+            <div class="p-4 bg-gray-50 flex items-center space-x-3">
+                <div class="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white font-semibold">
+                    <?php echo strtoupper(substr($article['username'], 0, 1)); ?>
+                </div>
+                <span class="font-medium text-gray-700"><?php echo htmlspecialchars($article['username']); ?></span>
+            </div>
+            
+            <!-- Article title -->
+            <h3 class="font-bold text-2xl text-gray-800 px-6 pt-4">
+                <?php echo htmlspecialchars($article['titre']); ?>
+            </h3>
+            
+            <!-- Tags -->
+            <div class="px-6 pt-2 flex flex-wrap gap-2">
+                <?php foreach($tags as $tag): ?>
+                    <span class="bg-gray-100 text-gray-600 px-3 py-1 rounded-full text-sm">
+                        <?php echo htmlspecialchars(trim($tag)); ?>
+                    </span>
+                <?php endforeach; ?>
+            </div>
+            
+            <!-- Image -->
+            <div class="relative mt-4">
+                <img src="<?php echo htmlspecialchars($article['image_url'] ?? '/api/placeholder/400/300'); ?>" 
+                     alt="<?php echo htmlspecialchars($article['titre']); ?>" 
+                     class="w-full h-48 object-cover">
+                <span class="absolute top-4 right-4 bg-blue-500 text-white px-4 py-1.5 rounded-full font-semibold">
+                    <?php echo htmlspecialchars($article['theme_name']); ?>
+                </span>
+            </div>
+            
+            <!-- Content preview and read more -->
+            <div class="p-6 space-y-4">
+                <p class="text-gray-600">
+                    <?php echo substr(htmlspecialchars($article['contenu']), 0, 100) . '...'; ?>
+                </p>
+                <button class="text-blue-600 font-semibold hover:text-blue-800 transition-colors">
+                    Read More →
+                </button>
             </div>
         </div>
-    </div>
+    <?php endforeach; ?>
 </div>
     </div>
+</div>
 
     <script>
-        // Add client-side date validation
+      document.addEventListener('DOMContentLoaded', function() {
+    // Page Elements
+    const elements = {
+        buttons: {
+            showCars: document.getElementById('showCars'),
+            showReservations: document.getElementById('showReservations'),
+            showBlog: document.getElementById('showBlog'),
+            showAddArticle: document.getElementById('showAddArticle'),
+            cancelArticle: document.getElementById('cancelArticle'),
+            addTagBtn: document.getElementById('addTagBtn')
+        },
+        pages: {
+            cars: document.getElementById('carsPage'),
+            reservations: document.getElementById('reservationsPage'),
+            blog: document.getElementById('blogPage')
+        },
+        forms: {
+            addArticle: document.getElementById('addArticleForm')
+        },
+        inputs: {
+            tagInput: document.getElementById('tagInput'),
+            tagsContainer: document.getElementById('tagsContainer'),
+            hiddenTagsInput: document.getElementById('tagsInput'),
+            imagePreview: document.getElementById('image-preview'),
+            uploadText: document.getElementById('upload-text')
+        }
+    };
+
+    // State Management
+    let tags = [];
+
+    // Navigation Handler
+    function switchPage(activeButton) {
+        // Get all navigation buttons and pages
+        const allButtons = [
+            elements.buttons.showCars, 
+            elements.buttons.showReservations, 
+            elements.buttons.showBlog
+        ];
+        const allPages = [
+            elements.pages.cars, 
+            elements.pages.reservations, 
+            elements.pages.blog
+        ];
+
+        // Reset all states
+        allButtons.forEach(btn => btn.classList.remove('active'));
+        allPages.forEach(page => page.style.display = 'none');
+
+        // Set active states
+        activeButton.classList.add('active');
+
+        // Show corresponding page
+        switch(activeButton) {
+            case elements.buttons.showCars:
+                elements.pages.cars.style.display = 'block';
+                break;
+            case elements.buttons.showReservations:
+                elements.pages.reservations.style.display = 'block';
+                break;
+            case elements.buttons.showBlog:
+                elements.pages.blog.style.display = 'block';
+                break;
+        }
+    }
+
+    // Tag Management
+    function addTag(tagText) {
+        tagText = tagText.trim();
+        if (tagText && !tags.includes(tagText)) {
+            tags.push(tagText);
+            const tagElement = document.createElement('div');
+            tagElement.className = 'bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm flex items-center gap-2';
+            tagElement.innerHTML = `
+                ${tagText}
+                <button type="button" class="hover:text-blue-900 font-bold" onclick="removeTag(this, '${tagText}')">&times;</button>
+            `;
+            elements.inputs.tagsContainer.appendChild(tagElement);
+            updateHiddenInput();
+        }
+    }
+
+    function removeTag(button, tagText) {
+        button.parentElement.remove();
+        tags = tags.filter(tag => tag !== tagText);
+        updateHiddenInput();
+    }
+
+    function updateHiddenInput() {
+        elements.inputs.hiddenTagsInput.value = tags.join(',');
+    }
+
+    // Image Preview Handler
+    function handleImagePreview(input) {
+        if (input.files && input.files[0]) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                elements.inputs.imagePreview.src = e.target.result;
+                elements.inputs.imagePreview.classList.remove('hidden');
+                elements.inputs.uploadText.classList.add('hidden');
+            };
+            reader.readAsDataURL(input.files[0]);
+        }
+    }
+
+    // Form Validation
+    function validateForm(form) {
+        const startDate = new Date(form.date_debut?.value);
+        const endDate = new Date(form.date_fin?.value);
+        
+        if (endDate <= startDate) {
+            alert('End date must be after start date');
+            return false;
+        }
+        
+        if (form.hasAttribute('data-requires-tags') && tags.length === 0) {
+            alert('Please add at least one tag');
+            return false;
+        }
+        
+        return true;
+    }
+
+    // Event Listeners
+    function initializeEventListeners() {
+        // Navigation
+        elements.buttons.showCars?.addEventListener('click', () => switchPage(elements.buttons.showCars));
+        elements.buttons.showReservations?.addEventListener('click', () => switchPage(elements.buttons.showReservations));
+        elements.buttons.showBlog?.addEventListener('click', () => switchPage(elements.buttons.showBlog));
+
+        // Article Form
+        elements.buttons.showAddArticle?.addEventListener('click', () => {
+            elements.forms.addArticle.classList.remove('hidden');
+            elements.forms.addArticle.classList.add('animate-fadeIn');
+        });
+
+        elements.buttons.cancelArticle?.addEventListener('click', () => {
+            elements.forms.addArticle.classList.add('hidden');
+            elements.forms.addArticle.classList.remove('animate-fadeIn');
+        });
+
+        // Tag Management
+        elements.buttons.addTagBtn?.addEventListener('click', () => {
+            addTag(elements.inputs.tagInput.value);
+            elements.inputs.tagInput.value = '';
+        });
+
+        elements.inputs.tagInput?.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                addTag(this.value);
+                this.value = '';
+            }
+        });
+
+        // Form Validation
         document.querySelectorAll('form').forEach(form => {
             form.addEventListener('submit', function(e) {
-                const startDate = new Date(this.date_debut.value);
-                const endDate = new Date(this.date_fin.value);
-                
-                if (endDate <= startDate) {
+                if (!validateForm(this)) {
                     e.preventDefault();
-                    alert('End date must be after start date');
                 }
             });
         });
 
-        // Navigation functionality
-        document.addEventListener('DOMContentLoaded', function() {
-    const showCars = document.getElementById('showCars');
-    const showReservations = document.getElementById('showReservations');
-    const carsPage = document.querySelector('.grid.grid-cols-1.md\\:grid-cols-2.lg\\:grid-cols-3').parentElement;
-    const reservationsPage = document.getElementById('reservationsPage');
-
-    // Add id to cars page container for easier reference
-    carsPage.id = 'carsPage';
-    
-    function switchPage(showElement, hideElement, activeBtn, inactiveBtn) {
-        hideElement.style.display = 'none';
-        showElement.style.display = 'block';
-        inactiveBtn.classList.remove('active');
-        activeBtn.classList.add('active');
-    }
-
-    showCars.addEventListener('click', () => {
-        switchPage(carsPage, reservationsPage, showCars, showReservations);
-    });
-
-    showReservations.addEventListener('click', () => {
-        switchPage(reservationsPage, carsPage, showReservations, showCars);
-    });
-});
-
         // Prevent back button
         history.pushState(null, null, location.href);
-        window.onpopstate = function () {
+        window.onpopstate = function() {
             history.pushState(null, null, location.href);
-
-
-            // Add these to your existing script section
-
-
-// Add this animation to your existing CSS
-
         };
-        document.addEventListener('DOMContentLoaded', function() {
-    // Get all page elements
-    const showCars = document.getElementById('showCars');
-    const showReservations = document.getElementById('showReservations');
-    const showBlog = document.getElementById('showBlog');
-    const carsPage = document.getElementById('carsPage');
-    const reservationsPage = document.getElementById('reservationsPage');
-    const blogPage = document.getElementById('blogPage');
-    const showAddArticle = document.getElementById('showAddArticle');
-    const addArticleForm = document.getElementById('addArticleForm');
-    const cancelArticle = document.getElementById('cancelArticle');
-
-    // Navigation buttons
-    const navButtons = [showCars, showReservations, showBlog];
-    // Pages
-    const pages = [carsPage, reservationsPage, blogPage];
-
-    function switchPage(activeButton) {
-        // Remove active class from all buttons and hide all pages
-        navButtons.forEach(btn => btn.classList.remove('active'));
-        pages.forEach(page => page.style.display = 'none');
-
-        // Add active class to clicked button
-        activeButton.classList.add('active');
-
-        // Show corresponding page
-        if (activeButton === showCars) {
-            carsPage.style.display = 'block';
-        } else if (activeButton === showReservations) {
-            reservationsPage.style.display = 'block';
-        } else if (activeButton === showBlog) {
-            blogPage.style.display = 'block';
-        }
     }
 
-    // Add click events for navigation
-    showCars.addEventListener('click', () => switchPage(showCars));
-    showReservations.addEventListener('click', () => switchPage(showReservations));
-    showBlog.addEventListener('click', () => switchPage(showBlog));
+    // Make removeTag available globally
+    window.removeTag = removeTag;
+    // Make handleImagePreview available globally
+    window.previewImage = handleImagePreview;
 
-    // Blog article form handling
-    showAddArticle?.addEventListener('click', () => {
-        addArticleForm.classList.remove('hidden');
-        addArticleForm.classList.add('animate-fadeIn');
-    });
-
-    cancelArticle?.addEventListener('click', () => {
-        addArticleForm.classList.add('hidden');
-        addArticleForm.classList.remove('animate-fadeIn');
-    });
-
-    // Prevent back button
-    history.pushState(null, null, location.href);
-    window.onpopstate = function() {
-        history.pushState(null, null, location.href);
-    };
-});
-document.addEventListener('DOMContentLoaded', function() {
-    const tagInput = document.getElementById('tagInput');
-    const addTagBtn = document.getElementById('addTagBtn');
-    const tagsContainer = document.getElementById('tagsContainer');
-    const hiddenTagsInput = document.getElementById('tagsInput');
-    let tags = [];
-
-    // Function to create a new tag
-    function createTag(tagText) {
-        const tag = document.createElement('div');
-        tag.className = 'bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm flex items-center gap-2';
-        
-        const tagContent = document.createElement('span');
-        tagContent.textContent = tagText;
-        
-        const removeBtn = document.createElement('button');
-        removeBtn.innerHTML = '&times;';
-        removeBtn.className = 'hover:text-blue-900 font-bold';
-        removeBtn.type = 'button';
-        
-        removeBtn.onclick = function() {
-            tag.remove();
-            tags = tags.filter(t => t !== tagText);
-            updateHiddenInput();
-        };
-        
-        tag.appendChild(tagContent);
-        tag.appendChild(removeBtn);
-        return tag;
-    }
-
-    // Function to add a new tag
-    function addTag() {
-        const tagText = tagInput.value.trim();
-        if (tagText && !tags.includes(tagText)) {
-            tags.push(tagText);
-            tagsContainer.appendChild(createTag(tagText));
-            tagInput.value = '';
-            updateHiddenInput();
-        }
-    }
-
-    // Function to update hidden input value
-    function updateHiddenInput() {
-        hiddenTagsInput.value = tags.join(',');
-    }
-
-    // Event listeners
-    addTagBtn.addEventListener('click', addTag);
-
-    tagInput.addEventListener('keypress', function(e) {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            addTag();
-        }
-    });
-
-    // Add some sample tags if needed
-    /*
-    ['Technology', 'Cars', 'Electric'].forEach(tag => {
-        tags.push(tag);
-        tagsContainer.appendChild(createTag(tag));
-    });
-    updateHiddenInput();
-    */
+    // Initialize all event listeners
+    initializeEventListeners();
 });
     </script>
 </body>
